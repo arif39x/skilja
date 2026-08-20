@@ -9,19 +9,18 @@ static float g_buffer[BUFFER_SIZE];
 static int g_write_pos = 0;
 static ma_device g_device;
 static ma_context g_context;
-static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_initialized = 0;
 
 void audio_capture_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     if (pInput == NULL) return;
     const float* samples = (const float*)pInput;
 
-    pthread_mutex_lock(&g_mutex);
+    int write_pos = __atomic_load_n(&g_write_pos, __ATOMIC_RELAXED);
     for (ma_uint32 i = 0; i < frameCount; ++i) {
-        g_buffer[g_write_pos] = samples[i];
-        g_write_pos = (g_write_pos + 1) % BUFFER_SIZE;
+        g_buffer[write_pos] = samples[i];
+        write_pos = (write_pos + 1) % BUFFER_SIZE;
     }
-    pthread_mutex_unlock(&g_mutex);
+    __atomic_store_n(&g_write_pos, write_pos, __ATOMIC_RELEASE);
 }
 
 /* miniaudio's PulseAudio backend does not support ma_device_type_loopback, so we
@@ -87,12 +86,16 @@ void audio_capture_shutdown() {
     }
 }
 
-void audio_capture_get_latest(float* dest, int n) {
-    pthread_mutex_lock(&g_mutex);
-    if (n > BUFFER_SIZE) n = BUFFER_SIZE;
-    int start_pos = (g_write_pos - n + BUFFER_SIZE) % BUFFER_SIZE;
-    for (int i = 0; i < n; ++i) {
-        dest[i] = g_buffer[(start_pos + i) % BUFFER_SIZE];
+int audio_read_window(float* out, int num_samples) {
+    if (num_samples > BUFFER_SIZE) num_samples = BUFFER_SIZE;
+    int write_pos = __atomic_load_n(&g_write_pos, __ATOMIC_ACQUIRE);
+    int start_pos = (write_pos - num_samples + BUFFER_SIZE) % BUFFER_SIZE;
+    for (int i = 0; i < num_samples; ++i) {
+        out[i] = g_buffer[(start_pos + i) % BUFFER_SIZE];
     }
-    pthread_mutex_unlock(&g_mutex);
+    return 1;
+}
+
+void audio_capture_get_latest(float* dest, int n) {
+    audio_read_window(dest, n);
 }
