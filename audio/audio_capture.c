@@ -1,5 +1,8 @@
 #define MINIAUDIO_IMPLEMENTATION
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
 #include "/usr/lib/odin/vendor/miniaudio/src/miniaudio.h"
+#pragma GCC diagnostic pop
 #include <pthread.h>
 #include <string.h>
 
